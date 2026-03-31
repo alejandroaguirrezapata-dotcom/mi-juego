@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Mini Undertale 20 Niveles</title>
+<style>
+body { margin:0; background:black; display:flex; justify-content:center; align-items:center; height:100vh; font-family:monospace; overflow:hidden; }
+canvas { border:4px solid white; image-rendering:pixelated; }
+#ui { position:absolute; top:10px; left:50%; transform:translateX(-50%); color:white; font-size:20px; }
+#barra-vida { position:absolute; top:40px; left:50%; transform:translateX(-50%); width:200px; height:20px; border:2px solid white; }
+#vida { width:100%; height:100%; background:red; transition:width 0.2s linear; }
+#nivel { position:absolute; top:70px; left:50%; transform:translateX(-50%); color:white; font-size:18px; }
+</style>
+</head>
+<body>
+<div id="ui">Vidas:</div>
+<div id="barra-vida"><div id="vida"></div></div>
+<div id="nivel">Nivel: 1</div>
+<canvas id="juego" width="600" height="400"></canvas>
+<script>
+const canvas=document.getElementById("juego");
+const ctx=canvas.getContext("2d");
+const vidaDiv=document.getElementById("vida");
+const nivelDiv=document.getElementById("nivel");
+
+// --- Jugador ---
+const jugador={x:300,y:320,size:20,velocidad:5,color:"red",maxVidas:5,vidas:5, proyectiles:[]};
+const teclas={};
+document.addEventListener("keydown",e=>teclas[e.key]=true);
+document.addEventListener("keyup",e=>teclas[e.key]=false);
+
+// --- Clase Jefe ---
+class Jefe {
+    constructor(x,y,color,velocidad,hp,patrones){
+        this.x=x; this.y=y; this.width=80; this.height=40; this.color=color; this.dir=1;
+        this.velocidad=velocidad; this.hp=hp; this.maxHp=hp;
+        this.tiempoAtaque=0; this.patrones=patrones;
+    }
+    mover(){
+        this.x += this.velocidad*this.dir;
+        if(this.x<=50 || this.x+this.width>=550) this.dir*=-1;
+    }
+    dibujar(){
+        ctx.fillStyle=this.color;
+        ctx.fillRect(this.x,this.y,this.width,this.height);
+        ctx.fillStyle="black";
+        ctx.fillRect(this.x+20,this.y+10,10,10);
+        ctx.fillRect(this.x+50,this.y+10,10,10);
+        // Barra de vida
+        ctx.fillStyle="red";
+        ctx.fillRect(this.x,this.y-6,this.width*(this.hp/this.maxHp),5);
+    }
+}
+
+// --- Variables del juego ---
+let niveles=20;
+let nivelActual=1;
+let jefes=[];
+let ataques=[];
+
+// --- Dibujar jugador ---
+function dibujarCorazon(x,y,color){
+    ctx.fillStyle=color;
+    ctx.fillRect(x,y,5,5);
+    ctx.fillRect(x+10,y,5,5);
+    ctx.fillRect(x-5,y+5,20,5);
+    ctx.fillRect(x,y+10,10,5);
+    ctx.fillRect(x+5,y+15,5,5);
+}
+
+// --- Dibujar hueso ---
+function dibujarHueso(a){
+    ctx.save();
+    ctx.translate(a.x+a.w/2, a.y+a.h/2);
+    ctx.rotate(a.angle);
+    ctx.fillStyle="white";
+    ctx.fillRect(-a.w/2,-a.h/4,a.w,a.h/2);
+    ctx.fillRect(-a.w/4,-a.h/2,a.w/2,a.h);
+    ctx.restore();
+    a.angle+=a.rotSpeed;
+}
+
+// --- Generar ataques de jefe según patrón ---
+function generarAtaque(jefe){
+    let tipo = jefe.patrones[Math.floor(Math.random()*jefe.patrones.length)];
+    if(tipo==="lluvia"){
+        for(let i=0;i<5;i++){
+            ataques.push({x:50+Math.random()*500, y:jefe.y+jefe.height, w:15,h:15,velocidad:3+Math.random()*3, angle:0, rotSpeed:(Math.random()>0.5?1:-1)*0.1});
+        }
+    } else if(tipo==="cruz"){
+        ataques.push({x:jefe.x, y:jefe.y+jefe.height, w:15,h:15,velocidad:3, angle:0, rotSpeed:0});
+        ataques.push({x:jefe.x+jefe.width-15, y:jefe.y+jefe.height, w:15,h:15,velocidad:3, angle:0, rotSpeed:0});
+        ataques.push({x:jefe.x+jefe.width/2-7.5, y:jefe.y+jefe.height, w:15,h:15,velocidad:4, angle:0, rotSpeed:0});
+    } else if(tipo==="x"){
+        ataques.push({x:jefe.x, y:jefe.y+jefe.height, w:15,h:15,velocidad:3, angle:0, rotSpeed:0});
+        ataques.push({x:jefe.x+jefe.width, y:jefe.y+jefe.height, w:15,h:15,velocidad:3, angle:0, rotSpeed:0});
+    } else if(tipo==="horizontal"){
+        for(let i=0;i<10;i++){
+            ataques.push({x:50, y:jefe.y+i*30, w:10,h:10,velocidad:0, vx:4, vy:0, angle:0, rotSpeed:0});
+        }
+    } else if(tipo==="vertical"){
+        for(let i=0;i<10;i++){
+            ataques.push({x:50+i*50, y:jefe.y, w:10,h:10,velocidad:0, vx:0, vy:4, angle:0, rotSpeed:0});
+        }
+    } else if(tipo==="ola"){
+        for(let i=0;i<7;i++){
+            ataques.push({x:50+i*70, y:jefe.y+jefe.height, w:15,h:15, velocidad:3+Math.random()*2, angle:0, rotSpeed:0, tipo:"ola", fase:i*20});
+        }
+    }
+}
+
+// --- Inicializar jefes de nivel ---
+function iniciarNivel(n){
+    jefes.length=0;
+    let cantidad=Math.min(4,n);
+    for(let i=0;i<cantidad;i++){
+        let color=["purple","darkred","darkblue","darkgreen"][i];
+        let patrones=["lluvia","cruz","x","horizontal","vertical","ola"];
+        jefes.push(new Jefe(100+i*120,50,color,2+Math.random(),5+n/2,patrones));
+    }
+    nivelDiv.innerText="Nivel: "+n;
+}
+
+// --- Inicializar primer nivel ---
+iniciarNivel(nivelActual);
+
+// --- Actualizar ---
+function actualizar(){
+    // Movimiento jugador
+    if(teclas["ArrowUp"]) jugador.y-=jugador.velocidad;
+    if(teclas["ArrowDown"]) jugador.y+=jugador.velocidad;
+    if(teclas["ArrowLeft"]) jugador.x-=jugador.velocidad;
+    if(teclas["ArrowRight"]) jugador.x+=jugador.velocidad;
+    jugador.x=Math.max(55,Math.min(545,jugador.x));
+    jugador.y=Math.max(55,Math.min(345,jugador.y));
+
+    // Movimiento proyectiles jugador
+    for(let i=jugador.proyectiles.length-1;i>=0;i--){
+        jugador.proyectiles[i].y-=5;
+        if(jugador.proyectiles[i].y<0) jugador.proyectiles.splice(i,1);
+    }
+
+    // Limpiar
+    ctx.fillStyle="black";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // Caja batalla
+    ctx.strokeStyle="white";
+    ctx.lineWidth=4;
+    ctx.strokeRect(50,50,500,300);
+
+    // Jefes
+    for(let jefe of jefes){
+        jefe.mover();
+        jefe.dibujar();
+        jefe.tiempoAtaque++;
+        if(jefe.tiempoAtaque>50){
+            generarAtaque(jefe);
+            jefe.tiempoAtaque=0;
+        }
+    }
+
+    // Ataques de jefes
+    for(let i=ataques.length-1;i>=0;i--){
+        let a=ataques[i];
+        if(a.vx!==undefined) a.x+=a.vx;
+        if(a.vy!==undefined) a.y+=a.vy;
+        if(a.tipo==="ola") a.x += Math.sin((a.fase+a.y)/20)*2;
+        a.y += a.velocidad || 0;
+        dibujarHueso(a);
+
+        // Colisión jugador
+        if(jugador.x<a.x+a.w && jugador.x+jugador.size>a.x &&
+           jugador.y<a.y+a.h && jugador.y+jugador.size>a.y){
+            jugador.color="yellow";
+            ataques.splice(i,1);
+            jugador.vidas--;
+            vidaDiv.style.width=(jugador.vidas/jugador.maxVidas*100)+"%";
+            if(jugador.vidas<=0){
+                alert("¡Game Over!");
+                jugador.vidas=jugador.maxVidas;
+                jugador.x=300; jugador.y=320;
+                ataques.length=0;
+                vidaDiv.style.width="100%";
+                nivelActual=1;
+                iniciarNivel(nivelActual);
+            }
+            continue;
+        }
+
+        if(a.y>400 || a.x>600 || a.x<0) ataques.splice(i,1);
+    }
+
+    // Proyectiles jugador contra jefes
+    for(let i=jugador.proyectiles.length-1;i>=0;i--){
+        let p = jugador.proyectiles[i];
+        for(let j= jefes.length-1; j>=0; j--){
+            let jefe = jefes[j];
+            if(p.x<p.x+20 && p.x+jefe.width>p.x && p.y<p.y+20 && p.y+jefe.height>p.y){
+                jefe.hp--;
+                jugador.proyectiles.splice(i,1);
+                if(jefe.hp<=0) jefes.splice(j,1);
+                break;
+            }
+        }
+    }
+
+    // Dibujar jugador
+    dibujarCorazon(jugador.x,jugador.y,jugador.color);
+    if(!ataques.some(a=> jugador.x<a.x+a.w && jugador.x+jugador.size>a.x &&
+                          jugador.y<a.y+a.h && jugador.y+jugador.size>a.y)) jugador.color="red";
+
+    // Disparar proyectil
+    if(teclas[" "]){ // barra espaciadora
+        if(jugador.proyectiles.length<3) jugador.proyectiles.push({x:jugador.x+5,y:jugador.y-10});
+    }
+    // Dibujar proyectiles
+    ctx.fillStyle="cyan";
+    for(let p of jugador.proyectiles){
+        ctx.fillRect(p.x,p.y,5,10);
+    }
+
+    // Pasar al siguiente nivel
+    if(jefes.length===0){
+        nivelActual++;
+        if(nivelActual>niveles){
+            alert("¡Ganaste todos los niveles!");
+            nivelActual=1;
+        }
+        iniciarNivel(nivelActual);
+    }
+
+    requestAnimationFrame(actualizar);
+}
+
+// --- Música ---
+const audio=new Audio("https://freesound.org/data/previews/467/467933_910695-lq.mp3");
+audio.loop=true;
+audio.volume=0.2;
+audio.play().catch(()=>{});
+
+actualizar();
+</script>
+</body>
+</html>
